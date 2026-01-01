@@ -130,6 +130,7 @@ vector<string> queryParser(const string &query)
     stringstream stream(q);
     char c;
     string buffer;
+    int count = 0;
     while (stream.get(c))
     {
         if (isalnum(c))
@@ -138,31 +139,42 @@ vector<string> queryParser(const string &query)
         }
         else
         {
-            if (!buffer.empty() && stopWords.find(buffer) == stopWords.end())
+            if (!buffer.empty())
             {
-                queryTokens.push_back(buffer);
+                count++;
+                if (stopWords.find(buffer) == stopWords.end())
+                {
+                    queryTokens.push_back(buffer);
+                }
             }
             buffer.clear();
         }
     }
-    if (!buffer.empty() && stopWords.find(buffer) == stopWords.end())
+    if (!buffer.empty())
     {
-        queryTokens.push_back(buffer);
+        count++;
+        if (stopWords.find(buffer) == stopWords.end())
+        {
+            queryTokens.push_back(buffer);
+        }
     }
-    return queryTokens;
+    return (queryTokens.size() == count) ? queryTokens : vector<string>{};
 }
 
 vector<vector<positioning>> search(vector<string> query, unordered_map<string, vector<positioning>> &iix)
 {
     vector<vector<positioning>> loc;
+    int count = 0;
     for (string q : query)
     {
+        count++;
         if (iix.find(q) != iix.end())
         {
+            cout << q << endl;
             loc.push_back(iix[q]);
         }
     }
-    return loc;
+    return (count == loc.size()) ? loc : vector<vector<positioning>>{};
 }
 
 vector<positioning> intersector(vector<positioning> &a, vector<positioning> &b)
@@ -191,7 +203,8 @@ vector<positioning> intersector(vector<positioning> &a, vector<positioning> &b)
 
 vector<positioning> intersectionSearch(vector<vector<positioning>> data)
 {
-    if (data.empty()) return {};
+    if (data.empty())
+        return {};
 
     sort(data.begin(), data.end(),
          [](auto &a, auto &b)
@@ -203,7 +216,7 @@ vector<positioning> intersectionSearch(vector<vector<positioning>> data)
 
     for (int i = 1; i < data.size(); i++)
     {
-        
+
         result = intersector(result, data[i]);
         if (result.empty())
             break;
@@ -223,45 +236,17 @@ int main()
          << "Enter your Query: ";
     string query;
     getline(cin, query);
-    vector<string> res = queryParser(query);
-    vector<vector<positioning>> searchLoc = search(res, iix);
+    vector<string> query_stream = queryParser(query);
+    vector<vector<positioning>> qStream_loc = search(query_stream, iix);
     unordered_map<int, int> max_repeated;
-    vector<positioning> inter = intersectionSearch(searchLoc);
-    for(const auto &v : inter){
+    if(query_stream.size() != qStream_loc.size()){
+        cout << "The Query Words are not found at index, Search has been stopped!" << endl;
+        return 0;
+    }
+    vector<positioning> intersection = intersectionSearch(qStream_loc);
+    for (const auto &v : intersection)
+    {
         cout << v.doc_id << endl;
     }
-    // for (const vector<positioning> &val : searchLoc)
-    // {
-    //     for (positioning pos : val)
-    //     {
-    //         max_repeated[pos.doc_id]++;
-    //     }
-    // }
-    int maxCnt = 0, rep = -1;
-    // for (auto i : max_repeated)
-    // {
-    //     int val = i.first, cnt = i.second;
-
-    //     if (maxCnt < cnt || (cnt == maxCnt && val > rep))
-    //     {
-    //         rep = val;
-    //         maxCnt = cnt;
-    //     }
-    // }
-
-    // for (const auto &val : searchLoc)
-    // {
-    //     for (positioning pos : val)
-    //     {
-    //         if (pos.doc_id == rep)
-    //         {
-    //             for (long l : pos.positions)
-    //             {
-    //                 cout << l << ", ";
-    //             }
-    //             cout << endl;
-    //         }
-    //     }
-    // }
-    return 0;
+    return 1;
 }
