@@ -16,3 +16,7 @@
     Now I have fixed the search & query processing, where we only go for intersection only when we have all the words of the query present in the index so that we can find the correct document which has the relation to the query.
     yesterday we have done soft matching search where we see for the highest repeated words in multiple docs if not in a single one, we have done with intersection search.
     
+# commit -5
+    So that I was using the Intersector for finding the intersection search, we replaced it with map where if the curr doc_id is not in prev_doc then we just remove it.  
+    Using Phrase Search we try to match and search the query whether they are adjacent in the file or not, if yes then we return the starting index of query to find the word in the file.
+    Also if query phrases are more than 1 then we use phrase search else we go with normal search. 

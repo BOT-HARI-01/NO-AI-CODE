@@ -9,7 +9,7 @@ struct positioning
 // function declaration
 void sWMapper(const string &);
 string fileReader(const string &);
-vector<string> queryParser(const string &);
+vector<string> queryTokenizer(const string &);
 unordered_map<string, vector<positioning>> buildInvertedIndex(vector<string>);
 
 unordered_set<string> stopWords;
@@ -72,17 +72,18 @@ unordered_map<string, vector<long>> tokenizer(const string &file)
         {
             if (!buffer.empty() && stopWords.find(buffer) == stopWords.end())
             {
-
-                tokens[buffer].push_back(pos - static_cast<long>(buffer.length()));
+                pos = stream.tellg();
+                long start_pos = pos - static_cast<long>(buffer.length()) - 1;
+                tokens[buffer].push_back(start_pos);
             }
             buffer.clear();
         }
-        pos++;
     }
     if (!buffer.empty() && stopWords.find(buffer) == stopWords.end())
     {
-
-        tokens[buffer].push_back(pos - static_cast<long>(buffer.length()));
+        long pos = stream.tellg();
+        long start_pos = pos - static_cast<long>(buffer.length());
+        tokens[buffer].push_back(start_pos);
     }
     buffer.clear();
     return tokens;
@@ -122,7 +123,7 @@ void invertedIndexWriter(unordered_map<string, vector<positioning>> &iix, ofstre
     }
 }
 
-vector<string> queryParser(const string &query)
+vector<string> queryTokenizer(const string &query)
 {
     vector<string> queryTokens;
     string q = query;
@@ -161,47 +162,22 @@ vector<string> queryParser(const string &query)
     return (queryTokens.size() == count) ? queryTokens : vector<string>{};
 }
 
-vector<vector<positioning>> search(vector<string> query, unordered_map<string, vector<positioning>> &iix)
+vector<pair<string, vector<positioning>>> queryIndexFinder(vector<string> query, unordered_map<string, vector<positioning>> &iix)
 {
-    vector<vector<positioning>> loc;
+    vector<pair<string, vector<positioning>>> loc;
     int count = 0;
     for (string q : query)
     {
         count++;
         if (iix.find(q) != iix.end())
         {
-            cout << q << endl;
-            loc.push_back(iix[q]);
+            loc.push_back({q, iix[q]});
         }
     }
-    return (count == loc.size()) ? loc : vector<vector<positioning>>{};
+    return (count == loc.size()) ? loc : vector<pair<string, vector<positioning>>>{};
 }
 
-vector<positioning> intersector(vector<positioning> &a, vector<positioning> &b)
-{
-    vector<positioning> res;
-    int i = 0, j = 0;
-    while (i < a.size() && j < b.size())
-    {
-        if (a[i].doc_id == b[j].doc_id)
-        {
-            res.push_back({a[i].doc_id});
-            i++;
-            j++;
-        }
-        else if (a[i].doc_id < b[j].doc_id)
-        {
-            i++;
-        }
-        else
-        {
-            j++;
-        }
-    }
-    return res;
-}
-
-vector<positioning> intersectionSearch(vector<vector<positioning>> data)
+unordered_map<int, vector<pair<string, vector<long>>>> intersectionSearch(vector<pair<string, vector<positioning>>> data)
 {
     if (data.empty())
         return {};
@@ -209,19 +185,89 @@ vector<positioning> intersectionSearch(vector<vector<positioning>> data)
     sort(data.begin(), data.end(),
          [](auto &a, auto &b)
          {
-             return a.size() < b.size();
+             return a.second.size() < b.second.size();
          });
 
-    vector<positioning> result = data[0];
+    unordered_map<int, vector<pair<string, vector<long>>>> result;
+
+    for (const auto &p : data[0].second)
+    {
+        result[p.doc_id].push_back({data[0].first, p.positions});
+    }
 
     for (int i = 1; i < data.size(); i++)
     {
+        unordered_map<int, vector<long>> curr_doc;
+        for (const auto &cd : data[i].second)
+        {
+            curr_doc[cd.doc_id] = cd.positions;
+        }
 
-        result = intersector(result, data[i]);
-        if (result.empty())
-            break;
+        for (auto it = result.begin(); it != result.end();)
+        {
+            int idoc_id = it->first;
+
+            if (curr_doc.find(idoc_id) == curr_doc.end())
+            {
+                it = result.erase(it);
+            }
+            else
+            {
+                vector<long> &positions = curr_doc.find(idoc_id)->second;
+                it->second.push_back({data[i].first, positions});
+                ++it;
+            }
+        }
     }
     return result;
+}
+
+vector<pair<int, long>> phraseSearch(unordered_map<int, vector<pair<string, vector<long>>>> &data)
+{
+    vector<pair<int, long>> results;
+    long pos;
+    for (const auto &doc_entry : data)
+    {
+        const auto &doc_id = doc_entry.first;
+        const auto &words_positions = doc_entry.second;
+
+        bool phrase_found = true;
+
+        for (size_t i = 0; i < words_positions.size() - 1; ++i)
+        {
+            const string &word1 = words_positions[i].first;
+            const vector<long> &pos1 = words_positions[i].second;
+            const string &word2 = words_positions[i + 1].first;
+            const vector<long> &pos2 = words_positions[i + 1].second;
+
+            bool found_adjacent = false;
+
+            for (long p1 : pos1)
+            {
+                long expected_pos = p1 + (long)word1.length() + 1;
+
+                if (binary_search(pos2.begin(), pos2.end(), expected_pos))
+                {
+                    found_adjacent = true;
+                    pos = p1;
+                    break;
+                }
+            }
+
+            if (!found_adjacent)
+            {
+                phrase_found = false;
+                break;
+            }
+        }
+
+        if (phrase_found)
+        {
+            results.push_back({doc_id, pos});
+            return results;
+        }
+    }
+    return results;
 }
 
 int main()
@@ -236,17 +282,71 @@ int main()
          << "Enter your Query: ";
     string query;
     getline(cin, query);
-    vector<string> query_stream = queryParser(query);
-    vector<vector<positioning>> qStream_loc = search(query_stream, iix);
-    unordered_map<int, int> max_repeated;
-    if(query_stream.size() != qStream_loc.size()){
+    // gets the vector of strings of the single stmt query that has been parsed
+    vector<string> query_stream = queryTokenizer(query);
+    // gets the location of each and every word of the query from the index
+    vector<pair<string, vector<positioning>>> qStream_loc = queryIndexFinder(query_stream, iix);
+    // Search only
+    if (query_stream.size() != qStream_loc.size())
+    {
         cout << "The Query Words are not found at index, Search has been stopped!" << endl;
         return 0;
     }
-    vector<positioning> intersection = intersectionSearch(qStream_loc);
-    for (const auto &v : intersection)
+
+    if (qStream_loc.size() == 1)
     {
-        cout << v.doc_id << endl;
+        for (const auto &qs : qStream_loc)
+        {
+            for (const auto &v : qs.second)
+            {
+                ifstream file(files[v.doc_id], ios::binary);
+                if (!file)
+                {
+                    cerr << "Cannot open file " << files[v.doc_id] << endl;
+                    continue;
+                }
+
+                for(long l : v.positions){
+
+                    file.seekg(l);
+                    
+                    char buffer[101] = {0};
+                    file.read(buffer, 100);
+                    cout << "Snippet: " << buffer << "\n\n";
+                }
+            }
+        }
+    }
+    else
+    {
+
+        unordered_map<int, vector<pair<string, vector<long>>>> intersection = intersectionSearch(qStream_loc);
+        auto positions = phraseSearch(intersection);
+
+        if (positions.empty())
+        {
+            cout << "Phrase NOT found." << endl;
+        }
+        else
+        {
+            for (auto &[doc_id, start_pos] : positions)
+            {
+                cout << "Phrase found in document " << files[doc_id] << " at position " << start_pos << endl;
+
+                ifstream file(files[doc_id], ios::binary);
+                if (!file)
+                {
+                    cerr << "Cannot open file " << files[doc_id] << endl;
+                    continue;
+                }
+
+                file.seekg(start_pos);
+
+                char buffer[101] = {0};
+                file.read(buffer, 100);
+                cout << "Snippet: " << buffer << "\n\n";
+            }
+        }
     }
     return 1;
 }
